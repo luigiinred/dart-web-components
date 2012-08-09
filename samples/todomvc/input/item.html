@@ -18,10 +18,7 @@
     </div>
   </template>
   <script>
-    #library('todoitem');
-    #import('model.dart');
     
-    class TodoItemComponent extends Component {
       Todo todo;
       bool _editing = false;
 
@@ -32,8 +29,12 @@
       void update() {
         _editing = false;
       }
-    }
   </script>
 </element>
+<script>
+  #library('todoitem');
+  #import('model.dart');
+
+</script>
 </body>
 </html>

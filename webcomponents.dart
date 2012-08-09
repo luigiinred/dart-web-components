@@ -1,4 +1,4 @@
-// Copyright (c) 2011, the Dart project authors.  Please see the AUTHORS file
+// Copyright (c) 2012, the Dart project authors.  Please see the AUTHORS file
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
@@ -29,12 +29,16 @@
 #source('lib/list_map.dart');
 
 // typedefs
-typedef WebComponent WebComponentFactory(ShadowRoot shadowRoot, Element elt);
+typedef WebComponent WebComponentFactory(Element elt);
 
 // Globals
 final int REQUEST_DONE = 4;
 CustomElementsManager _manager;
-CustomElementsManager get manager() => _manager;
+CustomElementsManager get manager() {
+  if (_manager == null)
+    _manager = new CustomElementsManager._();
+  return _manager;
+}
 
 // TODO(jmesserly): we should probably return something here that supports
 // dispose, to unregister the mutation observer.
@@ -43,8 +47,11 @@ CustomElementsManager get manager() => _manager;
  * binding.
  */
 void initializeComponents([controller]) {
-  _manager = new CustomElementsManager._();
   manager._loadComponents(controller);
+}
+
+void registerComponent(CustomDeclaration declaration) {
+  manager._customDeclarations[declaration.name] = declaration;
 }
 
 /** A Dart wrapper for a web component. */
@@ -53,40 +60,54 @@ abstract class WebComponent {
   abstract Element get element();
 
   /** Invoked when this component gets created. */
-  abstract void created();
+  void created(ShadowRoot shadowRoot) {}
 
   /** Invoked when this component gets inserted in the DOM tree. */
-  abstract void inserted();
+  void inserted() {}
 
   /** Invoked when any attribute of the component is modified. */
-  abstract void attributeChanged(
-      String name, String oldValue, String newValue);
+  void attributeChanged(
+      String name, String oldValue, String newValue) {}
 
   /** Invoked when this component is removed from the DOM tree. */
-  abstract void removed();
+  void removed() {}
 }
 
 /** Loads and manages the custom elements on a page. */
 class CustomElementsManager {
-
+  final bool _USE_EXPANDO = true;
   /**
    * Maps tag names to our internal dart representation of the custom element.
    */
-  Map<String, _CustomDeclaration> _customDeclarations;
+  Map<String, CustomDeclaration> _customDeclarations;
 
   // TODO(samhop): evaluate possibility of using vsm's trick of storing
   // arbitrary Dart objects directly on DOM objects rather than this map.
   /** Maps DOM elements to the user-defiend corresponding dart objects. */
   ListMap<Element, WebComponent> _customElements;
 
+  WebComponent _unwrap(Element e) {
+    return _USE_EXPANDO ? e.dynamic.xtag : _customElements[e];
+  }
+
+  void _setWrapper(Element e, WebComponent component) {
+    if (_USE_EXPANDO) {
+      e.dynamic.xtag = component;
+    } else {
+      _customElements[e] = component;
+    }
+  }
+
   MutationObserver _insertionObserver;
 
   CustomElementsManager._() {
     // TODO(samhop): check for ShadowDOM support
-    _customDeclarations = <_CustomDeclaration>{};
+    _customDeclarations = <CustomDeclaration>{};
     // We use a ListMap because DOM objects aren't hashable right now.
     // TODO(samhop): DOM objects (and everything else) should be hashable
-    _customElements = new ListMap<Element, WebComponent>();
+    if (!_USE_EXPANDO) {
+      _customElements = new ListMap<Element, WebComponent>();
+    }
     initializeInsertedRemovedCallbacks(document);
   }
 
@@ -95,48 +116,8 @@ class CustomElementsManager {
    * declarations.
    */
   void _loadComponents(declaringScope) {
-    queryAll('link[rel=components]').forEach((link) => _load(link.href));
     expandDeclarations(null, declaringScope);
     manager._expandDeclarations(null, insert: true);
-  }
-
-  /**
-   * Load the document at the given url and parse it to extract
-   * custom element declarations.
-   */
-  void _load(String url) {
-    var request = new XMLHttpRequest();
-    // We use a blocking request here because no Dart is allowed to run
-    // until DOM content is loaded.
-    // TODO(samhop): give a decent timeout message if custom elements fail to
-    // load
-    request.open('GET', url, async: false);
-    request.on.readyStateChange.add((Event e) {
-      if (request.readyState == REQUEST_DONE) {
-        if (request.status >= 200 && request.status < 300
-            || request.status == 304 || request.status == 0) {
-          var declarations = _parse(request.response);
-          declarations.forEach((declaration) {
-            _customDeclarations[declaration.name] = declaration;
-          });
-        } else {
-          window.console.error(
-              'Unable to load component: Status ${request.status}'
-              ' - ${request.statusText}');
-        }
-      }
-    });
-    request.send();
-  }
-
-  /** Parse the given string of HTML to extract the custom declarations. */
-  List<_CustomDeclaration>  _parse(String toParse) {
-    var declarations = new DocumentFragment.html(toParse);
-    var newDeclarations = [];
-    declarations.queryAll('element').forEach((element) {
-      newDeclarations.add(new _CustomDeclaration(element));
-    });
-    return newDeclarations;
   }
 
   /**
@@ -169,7 +150,7 @@ class CustomElementsManager {
       rootUnderTemplate = root.matchesSelector('template *');
     }
     for (var declaration in _customDeclarations.getValues()) {
-      var selector = '${declaration.extendz}[is=${declaration.name}]';
+      var selector = '${declaration.extendz}[is=${declaration.name}], ${declaration.name}';
       var all = target.queryAll(selector);
       // templates are innert and should not be expanded.
       var activeElements = all.filter(
@@ -179,7 +160,7 @@ class CustomElementsManager {
         activeElements.add(root);
       }
       for (var e in activeElements) {
-        var component = _customElements[e];
+        var component = _unwrap(e);
         if (component == null) {
           component = declaration.morph(e);
           newCustomElements.add(component);
@@ -197,10 +178,10 @@ class CustomElementsManager {
   void _removeComponents(Element root) {
     for (var decl in _customDeclarations.getValues()) {
       for (var e in root.queryAll('${decl.extendz}[is=${decl.name}]')) {
-        if (_customElements[e] != null) _customElements[e].removed();
+        if (_unwrap(e) != null) _unwrap(e).removed();
       }
       if (root.matchesSelector('${decl.extendz}[is=${decl.name}]')) {
-        if (_customElements[root] != null) _customElements[root].removed();
+        if (_unwrap(root) != null) _unwrap(root).removed();
       }
     }
   }
@@ -223,7 +204,7 @@ class CustomElementsManager {
     return declaration.morph(element);
   }
 
-  WebComponent operator [](Element element) => _customElements[element];
+  WebComponent operator [](Element element) => _unwrap(element);
 
   // Initializes management of inserted and removed
   // callbacks for WebComponents below root in the DOM. We need one of these
@@ -286,12 +267,11 @@ WebComponentFactory _findWebComponentCtor(String ctorName) {
   ctorName = (names.length > 1) ? names[1] : '';
 
   var mirror = currentMirrorSystem();
-  for (var lib in mirror.libraries().getValues()) {
-    var cls = lib.classes()[typeName];
+  for (var lib in mirror.libraries.getValues()) {
+    var cls = lib.classes[typeName];
     if (cls != null) {
-      return (ShadowRoot shadowRoot, Element elt) {
-        var future = cls.newInstance(ctorName,
-            [mirror.mirrorOf(shadowRoot), mirror.mirrorOf(elt)]);
+      return (Element elt) {
+        var future = cls.newInstance(ctorName, [reflect(elt)]);
         // type check, use "as" when available.
         WebComponent comp = future.value.reflectee;
         return comp;
@@ -300,34 +280,18 @@ WebComponentFactory _findWebComponentCtor(String ctorName) {
   }
 }
 
-class _CustomDeclaration {
+// TODO(jacobr): need to support components that extend other components.
+class CustomDeclaration {
   String name;
   String extendz;
   String constructor;
   Element template;
-  bool applyAuthorStyles;
+  final bool applyAuthorStyles;
 
   WebComponentFactory _createInstance;
 
-  _CustomDeclaration(Element element) {
-    name = element.attributes['name'];
-    applyAuthorStyles = element.attributes.containsKey('apply-author-styles');
-    if (name == null) {
-      // TODO(samhop): friendlier errors
-      window.console.error('name attribute is required');
-      return;
-    }
-    constructor = element.attributes['constructor'];
-    if (constructor == null || constructor.length == 0) {
-      window.console.error('constructor attribute is required');
-      return;
-    }
-    extendz = element.attributes['extends'];
-    if (extendz == null || extendz.length == 0) {
-      window.console.error('extends attribute is required');
-      return;
-    }
-    template = element.query('template');
+  CustomDeclaration(this.name, this.extendz, this.template,
+                     this.applyAuthorStyles, this.constructor) {
 
     // Find and cache the constructor function:
     _createInstance = _findWebComponentCtor(constructor);
@@ -336,7 +300,7 @@ class _CustomDeclaration {
   int hashCode() => name.hashCode();
 
   operator ==(other) {
-    if (other is! _CustomDeclaration) {
+    if (other is! CustomDeclaration) {
       return false;
     } else {
       return other.name == name &&
@@ -364,6 +328,7 @@ class _CustomDeclaration {
         shadowRoot.applyAuthorStyles = true;
       }
     } else {
+      print("XXX warning... very incomplete shadow root polyfill!");
       // Remove the old ShadowRoot, if any
       // TODO(jmesserly): can we avoid morphing the same node twice?
       // In any case, removal is not the right behavior. For inherited
@@ -378,10 +343,10 @@ class _CustomDeclaration {
 
     template.nodes.forEach((node) => shadowRoot.nodes.add(node.clone(true)));
 
-    var newCustomElement = _createInstance(shadowRoot, e);
-    manager._customElements[e] = newCustomElement;
+    var newCustomElement = _createInstance(e);
+    manager._setWrapper(e, newCustomElement);
     manager.expandDeclarations(shadowRoot, newCustomElement);
-    newCustomElement.created();
+    newCustomElement.created(shadowRoot);
     manager._expandDeclarations(shadowRoot, insert: true);
 
     // TODO(samhop): investigate refactoring/redesigning the API so that

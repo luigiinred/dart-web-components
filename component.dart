@@ -37,7 +37,6 @@ class ComponentScope {
   }
 }
 
-
 /**
  * Base component that has some common functionality used by our components.
  * Eventually the code for [bind] should be baked into every custom element
@@ -55,6 +54,8 @@ class Component extends WebComponent {
 
   static int _id = 0;
   Element _element;
+  // TODO(jacobr): specifying shadow root like this is wrong as subclasses
+  // should always have different shadow roots than their parent classes.
   ShadowRoot _root;
 
   List<Action> _insertActions;
@@ -73,7 +74,7 @@ class Component extends WebComponent {
    */
   var declaringScope;
 
-  Component(this.name, this._root, this._element)
+  Component(this.name, this._element)
       : id = _id++,
         // TODO(jmesserly): initialize lazily
         _insertActions = [],
@@ -85,7 +86,10 @@ class Component extends WebComponent {
   ShadowRoot get root() => _root;
 
   // TODO(sigmund): delete print statements or use logging library.
-  void created() => print('$name $id-created');
+  void created(ShadowRoot root) {
+    _root = root;
+    print('$name $id-created');
+  }
 
   void inserted() {
     print('$name $id-inserted');

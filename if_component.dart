@@ -20,11 +20,12 @@ class IfComponent extends Component {
   WatcherDisposer _stopWatcher;
   String condition;
 
-  IfComponent(root, elem) : super('if', root, elem) {
+  IfComponent(elem) : super('if', elem) {
     condition = elem.attributes['instantiate'].substring('if '.length);
   }
 
-  void created() {
+  void created(ShadowRoot root) {
+    super.created(root);
     // TODO(sigmund): support document fragments, not just a single child.
     // TODO(sigmund): use logging and not assertions.
     assert(element.elements.length == 1);

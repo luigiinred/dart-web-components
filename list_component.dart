@@ -20,8 +20,8 @@ class ListComponent extends Component {
   Element _parent;
   WatcherDisposer _stopWatcher;
 
-  ListComponent(root, elem)
-      : super('list', root, elem) {
+  ListComponent(elem)
+      : super('list', elem) {
     var match = const RegExp(@"{{(.*) in (.*)}}").firstMatch(
           elem.attributes['iterate']);
     _loopVar = match.group(1);
@@ -30,7 +30,8 @@ class ListComponent extends Component {
 
   List items() => mirrorGet(declaringScope, _loopItems).reflectee;
 
-  void created() {
+  void created(ShadowRoot root) {
+    super.created(root);
     // TODO(sigmund): support document fragments, not just a single child.
     // TODO(sigmund): use logging and not assertions.
     assert(element.elements.length == 1);

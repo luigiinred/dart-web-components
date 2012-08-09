@@ -118,9 +118,9 @@ void _appSetUp() {
 void _componentsSetUp() {
   // Use mirrors when they become available.
   var map = {
-    'x-list': (root, elem) => new ListComponent(root, elem),
-    'x-if': (root, elem) {
-      var res = new IfComponent(root, elem);
+    'x-list': (elem) => new ListComponent(elem),
+    'x-if': (elem) {
+      var res = new IfComponent(elem);
       var condition = elem.attributes['instantiate'].substring('if '.length);
       if (condition == 'app.showFooter') {
         res.shouldShow = (_) => app.showFooter;
@@ -130,6 +130,7 @@ void _componentsSetUp() {
       return res;
     },
   };
+
   initializeComponents((name) => map[name]);
 }
 
