@@ -20,6 +20,8 @@ interface FileSystem {
 
   void createDirectory(String path, [bool recursive]);
   void removeDirectory(String path, [bool recursive]);
+
+  String filenameWithoutExtension(String filename);
 }
 
 /**

@@ -311,8 +311,8 @@ class Parser {
         start = _peekToken.start;
 
         int token = _peek();
-        bool xtag = token == TokenKind.IDENTIFIER;
-        if (TokenKind.validTagName(token) || xtag) {
+        bool xTag = token == TokenKind.IDENTIFIER;
+        if (TokenKind.validTagName(token) || xTag) {
           bool templateTag = token == TokenKind.TEMPLATE;
 
           Token tagToken = _next();
@@ -337,7 +337,8 @@ class Parser {
             scopeType = TokenKind.unscopedTag(tagToken.kind) ? 2 : 1;
           } else if (_maybeEat(TokenKind.END_NO_SCOPE_TAG)) {
             scopeType = 2;
-          } else if (xtag) {
+          }
+          if (xTag) {
             scopeType = 1;
           }
 
@@ -345,16 +346,38 @@ class Parser {
             var elem;
             if (templateTag) {
               // Process template
-              // TODO(terry): Template attributes instantiate, iterate, etc.
-              elem = new Template("", _makeSpan(start));
-            } else if (!xtag) {
+              String instantiate;
+              String iterate;
+              if (attrs.containsKey('instantiate')) {
+                instantiate = attrs['instantiate'].value;
+                attrs.remove('instantiate');
+              }
+              if (attrs.containsKey('iterate')) {
+                iterate = attrs['iterate'].value;
+                attrs.remove('iterate');
+              }
+
+              if (instantiate != null && iterate != null) {
+                _error(
+                    'Template must have either iterate or instantiate not both',
+                    _makeSpan(start));
+              }
+
+              if (instantiate != null) {
+                elem = new Template.instantiate(instantiate, _makeSpan(start));
+              } else if (iterate != null) {
+                elem = new Template.iterate(iterate, _makeSpan(start));
+              } else {
+                elem = new Template(_makeSpan(start));
+              }
+            } else if (!xTag) {
               elem = new HTMLElement.attributes(tagToken.kind,
                                                 attrs.getValues(),
                                                 varName,
                                                 _makeSpan(start));
             } else {
               // XTag
-              elem = new HTMLUnknownElement.attributes(_peekToken.text,
+              elem = new HTMLUnknownElement.attributes(tagToken.text,
                   attrs.getValues(),
                   varName,
                   _makeSpan(start));
@@ -370,16 +393,26 @@ class Parser {
         } else {
           // Close tag
           _eat(TokenKind.SLASH);
-          if (TokenKind.validTagName(_peek())) {
+          bool nextIsXTag = _peek() == TokenKind.IDENTIFIER;
+          if (TokenKind.validTagName(_peek()) || nextIsXTag) {
             Token tagToken = _next();
 
             _eat(TokenKind.GREATER_THAN);
 
             HTMLElement elem = stack.pop();
             if (!elem.isFragment) {
-              if (elem.tagTokenId != tagToken.kind) {
-                _error('Tag doesn\'t match expected </${elem.tagName
-                    }> got </${TokenKind.tagNameFromTokenId(tagToken.kind)}>');
+
+              if (!elem.isXTag) {
+                if (elem.tagTokenId != tagToken.kind) {
+                  _error('Tag doesn\'t match expected </${elem.tagName
+                      }> got </${
+                      TokenKind.tagNameFromTokenId(tagToken.kind)}>');
+                }
+              } else {
+                if (elem.tagName != tagToken.text) {
+                  _error('XTag doesn\'t match expected </${elem.tagName
+                      }> got </${tagToken.text}>');
+                }
               }
             } else {
               // Too many end tags.
@@ -442,8 +475,8 @@ class Parser {
           attrValue = new StringValue(litTok.value, _makeSpan(litTok.start));
         }
         attrs[attrName.name] = new HTMLAttribute(attrName.toString(),
-                                                     attrValue.toString(),
-                                                     _makeSpan(start));
+                                                 attrValue.toString(),
+                                                 _makeSpan(start));
       } else if (_peek() == TokenKind.EXPRESSION) {
         var tok = _next();
         if (tok is LiteralToken) {
@@ -498,7 +531,7 @@ class Parser {
 
     // Gobble up everything until we hit <
     while (_peek() != TokenKind.LESS_THAN && _peek() != TokenKind.END_OF_FILE) {
-      var tok = _next();
+      var tok = _next(false);
       // Expression?
       if (tok.kind == TokenKind.EXPRESSION) {
         if (stringValue.length > 0) {

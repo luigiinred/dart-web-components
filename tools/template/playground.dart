@@ -11,13 +11,15 @@
  */
 
 #import('dart:html');
-#import('template.dart');
-#import('codegen.dart');
 #import('../../lib/html5parser/htmltree.dart');
 #import('../lib/file_system_memory.dart');
 #import('../lib/world.dart');
 #import('../lib/source.dart');
 #import('../lib/cmd_options.dart');
+#import('template.dart');
+#import('compile.dart');
+#import('codegen.dart');
+#import('compilation_unit.dart');
 
 String currSampleTemplate;
 
@@ -75,12 +77,17 @@ void runTemplate([bool debug = false, bool parseOnly = false]) {
 
   if (debug) {
     try {
-      HTMLDocument tmplDoc = templateParseAndValidate(htmlTemplate);
-      dumpTree.add(tmplDoc.toDebugString());
+      var fs = new MemoryFileSystem();
+      fs.writeString("_memory", htmlTemplate);
 
-      // Generate the Dart class(es) for all template(s).
-      // Pass in filename of 'foo' for testing in UITest.
-      code.add(Codegen.generate(tmplDoc, 'foo'));
+      var analyze = new Compile.memory(fs, "_memory", 2);
+
+      analyze.forEach((CompilationUnit cu) {
+        dumpTree.add(cu.document.toDebugString());
+
+        // Get the generated Dart class for this template file.
+        code.add(cu.code);
+      });
     } catch (final htmlException) {
       // TODO(terry): TBD
       print("ERROR unhandled EXCEPTION");
@@ -90,7 +97,7 @@ void runTemplate([bool debug = false, bool parseOnly = false]) {
   final bgcolor = templateValid ? "white" : "red";
   final color = templateValid ? "black" : "white";
   final valid = templateValid ? "VALID" : "NOT VALID";
-  String resultStyle = "resize: none; margin: 0; height: 100%; width: 100%;"
+  String resultStyle = "margin: 0; height: 100%; width: 100%;"
     "padding: 5px 7px;";
 
   result.innerHTML = '''
@@ -137,7 +144,7 @@ void main() {
                         </tr>
                         <tr style="height: 100%;">
                           <td>
-                            <textarea id="template" style="resize: none; width: 100%; height: 100%; padding: 5px 7px;">${sample("simple")}</textarea>
+                            <textarea id="template" style="resize: none; width: 100%; height: 250px; padding: 5px 7px;">${sample("simple")}</textarea>
                           </td>
                         </tr>
                       </tbody>
@@ -179,7 +186,7 @@ void main() {
                         </tr>
                         <tr>
                           <td id="result">
-                            <textarea style="resize: none; width: 100%; height: 100%; border: black solid 1px; padding: 5px 7px;"></textarea>
+                            <textarea style="width: 100%; height: 100%; border: black solid 1px; padding: 5px 7px;"></textarea>
                           </td>
                         </tr>
                       </tbody>

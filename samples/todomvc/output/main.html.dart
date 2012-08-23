@@ -73,7 +73,7 @@ final INITIAL_PAGE = """
     <section id="main">
       <div is="x-toggle-all"></div>
       <ul id="todo-list">
-        <template iterate="{{x in app.todos}}" is="x-list">
+        <template iterate="x in app.todos" is="x-list">
           <template instantiate="if viewModel.isVisible(x)" is="x-if">
             <li is="x-todo-row" data-todo="x"></li>
           </template>

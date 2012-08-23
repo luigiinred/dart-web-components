@@ -39,4 +39,7 @@ class VMFileSystem implements FileSystem {
     // TODO(rnystrom): Implement.
     throw 'removeDirectory() is not implemented by VMFileSystem yet.';
   }
+
+  String filenameWithoutExtension(String filename) =>
+      new Path(filename).filenameWithoutExtension;
 }

@@ -7,14 +7,13 @@
 <html lang="en">
 <body>
 <script type="application/dart" src='model.dart'></script>
-</script>
 <element name="x-todo-form" extends="div" constructor="FormComponent"
          apply-author-styles>
   <template>
-    <input id="new-todo" placeholder="What needs to be done?" autofocus
+    <input id="new-todo" placeholder="What needs to be done?" autofocus=""
            data-on-change="{{addTodo}}">
-  <template>
-  <script>
+  </template>
+  <script type="application/dart">
     void addTodo() {
       app.todos.add(new Todo(_newTodo.value));
       _newTodo.value = '';

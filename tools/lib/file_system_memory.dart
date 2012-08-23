@@ -37,4 +37,6 @@ class MemoryFileSystem implements FileSystem {
     // TODO(terry): To be implement.
     throw 'removeDirectory() is not implemented by MemoryFileSystem yet.';
   }
+
+  String filenameWithoutExtension(String filename) => filename;
 }

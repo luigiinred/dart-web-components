@@ -13,7 +13,9 @@
 #import('../lib/source.dart');
 #import('../lib/cmd_options.dart');
 #import('../lib/world.dart');
+#import('compile.dart');
 #import('codegen.dart');
+#import('utils.dart');
 
 ArgParser commandOptions() {
   var args = new ArgParser();

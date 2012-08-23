@@ -43,10 +43,16 @@ class CommentDefinition extends TreeNode {
 
 class Template extends HTMLElement {
   String instantiate;
+  String iterate;
 
-  Template(this.instantiate, SourceSpan span):
-      super(TokenKind.TEMPLATE, span) {
-  }
+  Template(SourceSpan span): super(TokenKind.TEMPLATE, span);
+  Template.instantiate(this.instantiate, SourceSpan span)
+      : super(TokenKind.TEMPLATE, span);
+  Template.iterate(this.iterate, SourceSpan span)
+      : super(TokenKind.TEMPLATE, span);
+
+  bool get hasInstantiate() => instantiate != null && !instantiate.isEmpty();
+  bool get hasIterate() => iterate != null && !iterate.isEmpty();
 
   visit(TreeVisitor visitor) => visitor.visitTemplate(this);
 }
@@ -357,6 +363,7 @@ class TreePrinter implements TreeVisitor {
     output.heading('Template', node.span);
     output.depth++;
     output.writeValue('Instantiate', node.instantiate);
+    output.writeValue('Iterate', node.iterate);
     visitHTMLChildren(node);
     output.depth--;
   }

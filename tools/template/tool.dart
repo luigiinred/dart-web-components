@@ -4,8 +4,8 @@
 
 #library('templatetool');
 
-#import('dart:io');
 #import('package:args/args.dart');
+#import('dart:io');
 
 #import('../../lib/html5parser/htmltree.dart');
 #import('../lib/cmd_options.dart');
@@ -13,25 +13,39 @@
 #import('../lib/file_system_vm.dart');
 #import('../lib/source.dart');
 #import('../lib/world.dart');
+#import('compile.dart');
+#import('compilation_unit.dart');
 #import('codegen.dart');
 #import('template.dart');
+#import('utils.dart');
 
 FileSystem files;
 
-/** Invokes [callback] and returns how long it took to execute in ms. */
-num time(callback()) {
-  final watch = new Stopwatch();
-  watch.start();
-  callback();
-  watch.stop();
-  return watch.elapsedInMs();
-}
+// TODO(terry): Hacky way of finding stuff.  Our libraries should be part of
+//              SDK so we can use package sdk:.
+final String _DART_WEB_COMPONENTS = "/dart-web-components";
+int computeParentPathToBase(String path) {
+  int slashCount = 0;
 
-String GREEN_COLOR = '\u001b[32m';
-String NO_COLOR = '\u001b[0m';
+  path = path.trim();
+  if (path.length > 0) {
+    if (path.lastIndexOf('/') == (path.length - 1)) {
+      path = path.substring(0, path.length - 1);
+    }
 
-printStats(String phase, num elapsed, [String filename = '']) {
-  print('${phase} ${GREEN_COLOR}${filename}${NO_COLOR} in ${elapsed} msec.');
+    int idx = path.indexOf(_DART_WEB_COMPONENTS);
+    if (idx >= 0) {
+      idx += _DART_WEB_COMPONENTS.length;
+      String rest = path.substring(idx);
+      int slashIdx = 0;
+      while ((slashIdx = rest.indexOf('/', slashIdx)) >= 0) {
+        slashIdx++;
+        slashCount++;
+      }
+    }
+  }
+
+  return slashCount;
 }
 
 /**
@@ -43,10 +57,11 @@ void main() {
   ArgResults results = args.parse(new Options().arguments);
 
   if (results['help']) {
-    print('Usage: [options...] sourcefile outputfile\n');
+    print('Usage: [options...] sourcefile [outputPath]\n');
     print(args.getUsage());
-    print("       sourcefile - template file filename.tmpl");
-    print("       outputfile - generated dart source file filename.dart");
+    print("   sourcefile - template file filename.html");
+    print("   outputPath - if specified directory to generate files; if not");
+    print("                outputPath is same directory as sourcefile path");
     return;
   }
 
@@ -59,9 +74,9 @@ void main() {
   initHtmlWorld(parseOptions(results, files));
 
   // argument 0 - sourcefile full path
-  // argument 1 - outputfile full path
+  // argument 1 - output path
   String sourceFullFn = results.rest[0];
-  String outputFullFn = results.rest[1];
+  String outputDirectory = results.rest.length > 1 ? results.rest[1] : null;
 
   File fileSrc = new File(sourceFullFn);
 
@@ -72,49 +87,72 @@ void main() {
   Directory sourcePath = fileSrc.directorySync();
   String sourceFilename = fileSrc.name;
 
-  Path outPath = new Path(outputFullFn);
+  Path srcPath = new Path(sourceFullFn);
+  // The createSync is required to ensure that the directory is fully qualified
+  // using the current working directory.
+  File fileIn = new File.fromPath(srcPath);
+  fileIn.createSync();
+  Directory srcDir = fileIn.directorySync();
+  if (!srcDir.existsSync()) {
+    world.fatal("Input directory doesn't exist - srcDir");
+  }
+
+  // If not outputDirectory not specified use the directory of the source file.
+  if (outputDirectory == null || outputDirectory.isEmpty()) {
+    outputDirectory = srcDir.path;
+  }
 
   // The createSync is required to ensure that the directory is fully qualified
   // using the current working directory.
-  File fileOut = new File.fromPath(outPath);
-  fileOut.createSync();
-  Directory outDir = fileOut.directorySync();
-  if (!outDir.existsSync()) {
-    world.fatal("Output directory doesn't exist - $outDir");
+  Directory outDirectory = new Directory(outputDirectory);
+  if (!outDirectory.existsSync()) {
+    world.fatal("Output directory doesn't exist - ${outDirectory.path}");
   }
 
-  String outFileNameNoExt =
-      outPath.filenameWithoutExtension.replaceAll('.', '_');
+  // TODO(terry): Hacky way of finding all our libraries; should use package
+  //              when we're part of the SDK.
+  int numParents = computeParentPathToBase(outDirectory.path);
 
   if (!files.fileExists(sourceFullFn)) {
     // Display colored error message if file is missing.
     world.fatal("CSS source file missing - ${sourceFullFn}");
   } else {
-
     String source = files.readAll(sourceFullFn);
+    try {
+      final compileElapsed = time(() {
+        var analyze = new Compile(files, srcDir.path, srcPath.filename,
+            numParents);
+        // Write out the results.
+        print("Write files to ${outDirectory.path}:");
 
-    HTMLDocument tmplDoc;
-    final parsedElapsed = time(() {
-      tmplDoc = templateParseAndValidate(source);
-    });
+        String outDirPath = outDirectory.path;
+        // Write out the code associated with each compilation unit.
+        analyze.forEach((CompilationUnit cu) {
+//          if (!cu.opened || !cu.codeGenerated || !cu.htmlGenerated) {
+          if (!cu.opened || !cu.codeGenerated) {
+            world.error(
+                "Unexpected compiler error CU ${cu.filename} not processed.");
+          } else {
+            // Source filename associated with this compilation unit.
+            String filename = cu.filename;
 
-    StringBuffer code = new StringBuffer();
+            // Output .dart file.
+            String dartFilename = "$filename.dart";
+            files.writeString("$outDirPath/$dartFilename", cu.code);
+            print("  Writing $dartFilename");
 
-    num codegenElapsed;
-    if (world.errors == 0) {
-      // Generate the Dart class(es) for all template(s).
-      codegenElapsed = time(() {
-        code.add(Codegen.generate(tmplDoc, outFileNameNoExt));
+            // Otuput the .html file.
+//            String htmlFilename = "$filename.html";
+//            files.writeString("$outDirPath/$htmlFilename", cu.html);
+//            print("  Writing $htmlFilename");
+          }
+        });
       });
+
+      printStats("Compiled", compileElapsed, sourceFullFn);
+    } catch (final htmlException) {
+      // TODO(terry): TBD
+      print("ERROR unhandled EXCEPTION");
     }
-
-    printStats("Parsed", parsedElapsed, sourceFullFn);
-    printStats("Codegen", codegenElapsed, sourceFullFn);
-
-    final outputElapsed = time(() {
-      files.writeString(outputFullFn, code.toString());
-    });
-
-    printStats("Wrote file", codegenElapsed, outputFullFn);
   }
 }

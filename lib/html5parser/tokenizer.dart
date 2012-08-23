@@ -47,12 +47,6 @@ class Tokenizer extends TokenizerBase {
         }
       case TokenChar.END_OF_FILE:
         return _finishToken(TokenKind.END_OF_FILE);
-      case TokenChar.LPAREN:
-        return _finishToken(TokenKind.LPAREN);
-      case TokenChar.RPAREN:
-        return _finishToken(TokenKind.RPAREN);
-      case TokenChar.COMMA:
-        return _finishToken(TokenKind.COMMA);
       case TokenChar.LESS_THAN:
         if (_peekChar() == TokenChar.EXCLAMATION &&
             _peekChar(1) == TokenChar.MINUS &&
@@ -96,12 +90,17 @@ class Tokenizer extends TokenizerBase {
       case TokenChar.RBRACE:
         return _finishToken(TokenKind.RBRACE);
       case TokenChar.EXCLAMATION:
-        return this.finishIdentifier();
+        if (inTag) {
+          return this.finishIdentifier();
+        }
+        return _finishToken(TokenKind.EXCLAMATION);
       default:
         if (TokenizerHelpers.isIdentifierStart(ch)) {
           return this.finishIdentifier();
         } else if (TokenizerHelpers.isDigit(ch)) {
           return this.finishNumber();
+        } else if (inTag) {
+          // Text node.... keep reading as a string.
         } else {
           return _errorToken();
         }

@@ -24,7 +24,7 @@ class ListComponent extends Component {
 
   ListComponent(root, elem)
     : super('list', root, elem),
-      _loopVar = const RegExp(@"{{(.*) in .*}}").firstMatch(
+      _loopVar = const RegExp(@"(.*) in .*").firstMatch(
           elem.attributes['iterate']).group(1);
 
   void created() {
