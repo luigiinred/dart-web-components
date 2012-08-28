@@ -18,7 +18,7 @@
 #import('../lib/cmd_options.dart');
 #import('template.dart');
 #import('compile.dart');
-#import('codegen.dart');
+#import('codegen_application.dart');
 #import('compilation_unit.dart');
 
 String currSampleTemplate;

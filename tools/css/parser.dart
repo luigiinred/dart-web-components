@@ -1112,7 +1112,7 @@ class Parser {
         String hexText1 = _peekToken.text;
         _next();
         if (_peekIdentifier()) {
-          hexText = '${hexText1}${identifier().name}';
+          hexText = '$hexText1${identifier().name}';
         } else {
           hexText = hexText1;
         }
@@ -1480,9 +1480,9 @@ class ExpressionsProcessor {
     }
 
     return new FontExpression(_exprs.span,
-        size: fontSize.font.size,
-        lineHeight: fontSize.font.lineHeight,
-        family: fontFamily.font.family);
+        size: fontSize.dynamic.font.size,
+        lineHeight: fontSize.dynamic.font.lineHeight,
+        family: fontFamily.dynamic.font.family);
   }
 }
 

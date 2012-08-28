@@ -5,6 +5,7 @@
 #library('css');
 
 #import('dart:coreimpl');
+#import('dart:math', prefix: 'Math');
 #import('package:args/args.dart');
 #import("../lib/file_system.dart");
 #import('../lib/file_system_memory.dart');

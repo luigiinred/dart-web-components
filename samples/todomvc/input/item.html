@@ -12,14 +12,14 @@
   <template>
     <!-- TODO(sigmund): are arbitrary expressions like this allowed in MDV? -->
     <div id='todo-item' class="{{_editing ? 'editing' : (todo.done ? 'completed' : '')}}">
-      <div class="view" data-on-dblclick="edit()">
-        <input id="checkbox" class="toggle" type="checkbox" checked={{todo.done}}>
+      <div id="item-view" class="view" data-on-dblclick="{{edit()}}">
+        <input id="checkbox" class="toggle" type="checkbox" checked="{{todo.done}}">
         <label id="label">{{todo.task}}</label>
-        <button class="destroy" data-on-click="delete()"></button>
+        <button id="destroy-button" class="destroy" data-on-click="{{delete()}}"></button>
       </div>
-      <form data-on-submit="update()">
-        <input class="edit" data-bind-model="{{todo.task}}"
-               data-on-blur="update()" autofocus>
+      <form id="todo-form" data-on-submit="{{update()}}">
+        <input id="edit-line" class="edit" data-bind-model="{{todo.task}}"
+               data-on-blur="{{update()}}" autofocus>
       </form>
     </div>
   </template>
@@ -33,6 +33,14 @@
 
     void update() {
       _editing = false;
+    }
+
+    void delete() {
+      var list = app.todos;
+      var index = list.indexOf(todo);
+      if (index != -1) {
+        list.removeRange(index, 1);
+      }
     }
   </script>
 </element>

@@ -11,10 +11,9 @@
 #import('../lib/cmd_options.dart');
 #import('../lib/file_system_memory.dart');
 #import('../lib/source.dart');
-#import('../lib/cmd_options.dart');
 #import('../lib/world.dart');
 #import('compile.dart');
-#import('codegen.dart');
+#import('codegen_application.dart');
 #import('utils.dart');
 
 ArgParser commandOptions() {

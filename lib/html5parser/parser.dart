@@ -474,7 +474,7 @@ class Parser {
           LiteralToken litTok = tok;
           attrValue = new StringValue(litTok.value, _makeSpan(litTok.start));
         }
-        attrs[attrName.name] = new HTMLAttribute(attrName.toString(),
+        attrs[attrName.dynamic.name] = new HTMLAttribute(attrName.toString(),
                                                  attrValue.toString(),
                                                  _makeSpan(start));
       } else if (_peek() == TokenKind.EXPRESSION) {
@@ -483,7 +483,8 @@ class Parser {
           LiteralToken litTok = tok;
           attrValue = new StringValue(litTok.value, _makeSpan(litTok.start));
         }
-        attrs[attrName.name] = new TemplateAttributeExpression(attrName.toString(),
+        attrs[attrName.dynamic.name] =
+            new TemplateAttributeExpression(attrName.toString(),
           attrValue.toString(),
           _makeSpan(start));
       }

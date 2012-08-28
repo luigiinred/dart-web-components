@@ -151,7 +151,8 @@ class ProcessFiles {
   /** Another compiler file dependency. */
   void add(String filename,
            [int fileType = CompilationUnit.TYPE_COMPONENT]) {
-    CompilationUnit cu = new CompilationUnit(filename, new ElemCG(this));
+    CompilationUnit cu =
+        new CompilationUnit(filename, new ElemCG(this), fileType);
     _files.add(new ProcessFile(cu));
   }
 

@@ -11,6 +11,8 @@
 #import('../lib/file_system.dart');
 #import('../lib/world.dart');
 #import('codegen.dart');
+#import('codegen_application.dart');
+#import('codegen_component.dart');
 #import('compilation_unit.dart');
 #import('processor.dart');
 #import('template.dart');
@@ -101,7 +103,7 @@ class Compile {
           case ProcessFile.EMITTING:
             // Spit out the code for this file processed.
             final codegenElapsed = time(() {
-              process.cu.code = _startEmitter(process);
+              process.cu.code = _emitter(process);
             });
             if (options.showInfo) {
               printStats("Codegen", codegenElapsed, process.cu.filename);
@@ -146,7 +148,7 @@ class Compile {
     }
 
     bool firstTime = true;
-    for (var child in start.children) {
+    for (var child in start.dynamic.children) {
       if (child is HTMLText) {
         if (!firstTime) {
           ecg.closeStatement();
@@ -168,12 +170,17 @@ class Compile {
   }
 
   /** Emit the Dart code. */
-  String _startEmitter(ProcessFile process) {
+  String _emitter(ProcessFile process) {
     CompilationUnit cu = process.cu;
     String libraryName = cu.filename.replaceAll('.', '_');
 
-    return Codegen.generate(cu.document, _parentsPathCount, libraryName,
-        cu.filename, cu.elemCG);
+    if (cu.isWebComponent) {
+      return CodegenComponent.generate(_parentsPathCount, libraryName,
+          cu.filename, cu.elemCG);
+    } else {
+      return CodegenApplication.generate(_parentsPathCount, libraryName,
+          cu.filename, cu.elemCG);
+    }
   }
 
   /**
@@ -222,13 +229,28 @@ class CGBlock {
     assert(_blockType >= CGBlock.CONSTRUCTOR && _blockType <= CGBlock.TEMPLATE);
   }
 
-  bool get hasStatements() => !_stmts.isEmpty();
-  bool get isConstructor() => _blockType == CGBlock.CONSTRUCTOR;
-  bool get isRepeat() => _blockType == CGBlock.REPEAT;
-  bool get isTemplate() => _blockType == CGBlock.TEMPLATE;
+  bool get hasStatements => !_stmts.isEmpty();
+  bool get isConstructor => _blockType == CGBlock.CONSTRUCTOR;
+  bool get isRepeat => _blockType == CGBlock.REPEAT;
+  bool get isTemplate => _blockType == CGBlock.TEMPLATE;
 
-  bool get hasLocalName() => _localName != null;
-  String get localName() => _localName;
+  bool get hasLocalName => _localName != null;
+  String get localName => _localName;
+
+  String getHTMLElementIdAttribute(HTMLElement elem) {
+    int idx = 0;
+    var attrs = elem.attributes;
+    if (attrs != null) {
+      while (idx < attrs.length) {
+        var attr = attrs[idx++];
+        if (attr.name == "id") {
+          return attr.value;
+        }
+      }
+    }
+
+    return null;
+  }
 
   /**
    * Each statement (HTML) encountered is remembered with either/both variable
@@ -237,9 +259,20 @@ class CGBlock {
    */
   CGStatement push(var elem, var parentName, [bool exact = false]) {
     var varName;
-    if (elem is HTMLElement && elem.hasVar) {
-      varName = elem.varName;
-    } else {
+    if (elem is HTMLElement) {
+      HTMLElement htmlElem = elem;
+      if (htmlElem.hasVar) {
+        varName = htmlElem.varName;
+      } else {
+        // Any name with ID use name that is camel-cased to the id.
+        String idName = getHTMLElementIdAttribute(htmlElem);
+        if (idName != null) {
+          varName = "_${toCamelCase(idName)}";
+        }
+      }
+    }
+
+    if (varName == null) {
       varName = _localIndex++;
     }
 
@@ -256,7 +289,7 @@ class CGBlock {
     }
   }
 
-  CGStatement get last() => _stmts.length > 0 ? _stmts.last() : null;
+  CGStatement get last => _stmts.length > 0 ? _stmts.last() : null;
 
   /**
    * Returns mixed list of elements marked with the var attribute.  If the
@@ -272,7 +305,7 @@ class CGBlock {
    *
    *                   DivElement varName;
    */
-  String get globalDeclarations() {
+  String get globalDeclarations {
     StringBuffer buff = new StringBuffer();
     for (final CGStatement stmt in _stmts) {
       buff.add(stmt.globalDeclaration());
@@ -281,7 +314,7 @@ class CGBlock {
     return buff.toString();
   }
 
-  int get boundElementCount() {
+  int get boundElementCount {
     int count = 0;
     if (isTemplate) {
       for (var stmt in _stmts) {
@@ -307,7 +340,7 @@ class CGBlock {
    *
    *    myVar = [];
    */
-  String get globalInitializers() {
+  String get globalInitializers {
     StringBuffer buff = new StringBuffer();
     for (final CGStatement stmt in _stmts) {
       buff.add(stmt.globalInitializers());
@@ -316,7 +349,7 @@ class CGBlock {
     return buff.toString();
   }
 
-  String get codeBody() {
+  String get codeBody {
     StringBuffer buff = new StringBuffer();
 
     // If statement is a bound element, has {{ }}, then boundElemIdx will match
@@ -339,7 +372,7 @@ class CGBlock {
   // Tags that contains a template expression {{ nnnn }}.
   // ==================================================================""";
 
-  String templatesCodeBody(List<String> expressions) {
+  String templatesCodeBody(List<Expression> expressions) {
     StringBuffer buff = new StringBuffer();
 
     buff.add(genBoundElementsCommentBlock);
@@ -350,6 +383,72 @@ class CGBlock {
         buff.add(stmt.emitBoundElementFunction(expressions, boundElemIdx++));
       }
     }
+
+    return buff.toString();
+  }
+
+  String webComponentsCodeBody(List<Expression> expressions) {
+    String spaces = Codegen.spaces(2);
+
+    StringBuffer buff = new StringBuffer();
+
+    buff.add("$genBoundElementsCommentBlock\n");
+
+    StringBuffer elemVars = new StringBuffer();
+    StringBuffer otherVars = new StringBuffer();
+    StringBuffer createdStmts = new StringBuffer();
+    StringBuffer insertedStmts = new StringBuffer();
+    StringBuffer removedStmts = new StringBuffer();
+
+      try {
+        throw("DEBUG");
+      } catch (var e) {
+        print("STOP");
+      }
+
+
+    int boundElemIdx = 0;
+    for (final CGStatement stmt in _stmts) {
+      if (stmt.hasTemplateExpression) {
+        var exprs = stmt.attributesExpressions;
+
+        // Build the element variables.
+        elemVars.add(stmt.emitWebComponentElementVariables());
+
+        // Build the element listeners.
+        otherVars.add(stmt.emitWebComponentListeners(exprs, boundElemIdx));
+
+        // Build the created function body.
+        createdStmts.add(stmt.emitWebComponentCreated());
+
+        // Build the inserted function body.
+        insertedStmts.add(stmt.emitWebComponentInserted(exprs, boundElemIdx));
+
+        // Build the removed function body.
+        removedStmts.add(stmt.emitWebComponentRemoved(exprs, boundElemIdx));
+
+        boundElemIdx++;
+      }
+    }
+
+    buff.add(elemVars.toString());
+    buff.add(otherVars.toString());
+    buff.add("\n");
+
+    // Build the created function.
+    buff.add("${spaces}void created() {\n");
+    buff.add(createdStmts.toString());
+    buff.add("$spaces}\n\n");
+
+    // Build the inserted function.
+    buff.add("${spaces}void inserted() {\n");
+    buff.add(insertedStmts.toString());
+    buff.add("$spaces}\n\n");
+
+    // Build the removed function.
+    buff.add("${spaces}void removed() {\n");
+    buff.add(removedStmts.toString());
+    buff.add("$spaces}\n\n");
 
     return buff.toString();
   }
@@ -390,8 +489,8 @@ class CGStatement {
     }
   }
 
-  bool get hasGlobalVariable() => _globalVariable;
-  String get variableName() => varName;
+  bool get hasGlobalVariable => _globalVariable;
+  String get variableName => varName;
 
   String globalDeclaration() {
     if (hasGlobalVariable) {
@@ -415,13 +514,71 @@ class CGStatement {
     _buff.add(value);
   }
 
-  bool get closed() => _closed;
+  bool get closed => _closed;
 
   void close() {
     if (_elem is HTMLElement && _elem.scoped) {
       add("</${_elem.tagName}>");
     }
     _closed = true;
+  }
+
+  /** Find all attributes associated with a template expression. */
+  List<Expression> get attributesExpressions {
+    List<Expression> result = [];
+
+    for (var attr in _elem.attributes) {
+      bool flip = false;
+      if (attr is TemplateAttributeExpression) {
+        Expression newExpr;
+        String eventName = eventAttribute(attr.name);
+        if (eventName != null) {
+          newExpr = new Expression.event(eventName, attr.value);
+        } else {
+          switch (_elem.tagTokenId) {
+            case TokenKind.INPUT_ELEMENT:
+              if (attr.name == "checked") {
+                result.add(new Expression.event("click", ""));
+                // Emit the expression flipping the assignment.
+                flip = true;
+              }
+              break;
+          }
+
+          newExpr = new Expression.attribute(attr.name, attr.value, flip);
+        }
+
+        bool found = false;
+        for (var expr in result) {
+          if (expr.sameName(newExpr)) {
+            // If the attribute was already set just ignore same attribute
+            // subsequent times.
+            found = true;
+            break;
+          }
+        }
+
+        if (!found) {
+          result.add(newExpr);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  findExpressionInExpressions(List<Expression> exprs, String expr) {
+    int idx = 0;
+    while (idx < exprs.length) {
+      var existExpr = exprs[idx];
+      if (existExpr.expression == expr) {
+        return idx;
+      } else {
+        idx++;
+      }
+    }
+
+    return -1;
   }
 
   String emitStatement(int boundElemIdx) {
@@ -458,11 +615,11 @@ class CGStatement {
           parent.nodes.add(eNNN);
     */
     if (hasTemplateExpression) {
-      List<String> exprs = attributesExpressions();
+      List<Expression> exprs = attributesExpressions;
       // TODO(terry): Need to handle > one attribute expression per line.
       statement.add("\n$spaces${
         localVar}$varName = renderSetupFineGrainUpdates(() => model.${
-        exprs[0]}, $boundElemIdx);");
+        exprs[0].name}, $boundElemIdx);");
     } else {
       bool isTextNode = _elem is HTMLText;
       String createType = isTextNode ? "Text" : "Element.html";
@@ -497,7 +654,131 @@ class CGStatement {
     return statement.toString();
   }
 
-  String emitBoundElementFunction(List<String> expressions, int index) {
+  String emitWebComponentElementVariables() {
+    String spaces = Codegen.spaces(2);
+    return "${spaces}var $variableName;\n";
+  }
+
+  String emitWebComponentListeners(List<Expression> expressions, int index) {
+    String spaces = Codegen.spaces(2);
+
+    StringBuffer declLines = new StringBuffer();
+
+    String listenerName = "_listener$variableName";
+    String stopWatcherName = "_stopWatcher$variableName";
+
+    bool emittedListener = false;
+    bool emittedWatcher = false;
+    for (var expr in expressions) {
+      if (expr.isEvent && !emittedListener) {
+        declLines.add("${spaces}EventListener $listenerName;\n");
+        emittedListener = true;
+      } else if (expr.isAttribute && !emittedWatcher) {
+        declLines.add("${spaces}WatcherDisposer $stopWatcherName;\n");
+        emittedWatcher = true;
+      }
+    }
+
+    return declLines.toString();
+  }
+
+  String get elementId {
+    for (var attr in _elem.attributes) {
+      if (attr.name == 'id') {
+        return attr.value;
+      }
+    }
+
+    return null;
+  }
+
+  String emitWebComponentCreated() {
+    String spaces = Codegen.spaces(2);
+    String elemId = elementId;
+
+    return (elemId != null) ?
+        "$spaces  $variableName = root.query('#$elemId');\n" : "";
+  }
+
+  bool isEventAttribute(String attributeName) =>
+      attributeName.startsWith(DATA_ON_ATTRIBUTE);
+
+  /** Used for web components with template expressions {{expr}}. */
+  String emitWebComponentInserted(List<Expression> expressions, int index) {
+    String spaces = Codegen.spaces(2);
+
+    StringBuffer statement = new StringBuffer();
+
+    String listenerName = "_listener$variableName";
+    String stopWatcherName = "_stopWatcher$variableName";
+
+    StringBuffer listenerBody = new StringBuffer();
+    bool listenerToCreate = false;
+    for (var expr in expressions) {
+      if (expr.isEvent) {
+        listenerToCreate = true;
+        if (expr.expression.trim().length > 0) {
+          listenerBody.add("$spaces    ${expr.expression};\n");
+        }
+      } else if (expr.isAttribute) {
+        if (expr.isFlip) {
+          listenerBody.add(
+              "$spaces    ${expr.expression} = $variableName.${expr.name};\n");
+        } else {
+          listenerBody.add(
+              "$spaces    $variableName.${expr.name} = ${expr.expression};\n");
+        }
+      }
+    }
+
+    if (listenerToCreate) {
+      statement.add("$spaces  $listenerName = (_) {\n");
+      statement.add(listenerBody.toString());
+      statement.add("$spaces    dispatch();\n");
+      statement.add("$spaces  };\n");
+    }
+
+    for (var expr in expressions) {
+      if (expr.isEvent) {
+        String event = expr.name;
+        statement.add("$spaces  $variableName.on.$event.add($listenerName);\n");
+      } else if (expr.isAttribute) {
+        // Emit the watcher bound to the attribute changing
+        //   watcher = bind(() => attribute_expression, (e) {
+        //      element.attribute_name_expression = e.newValue;
+        //   });
+        statement.add(
+          "$spaces  $stopWatcherName = bind(() => ${expr.expression
+            }, (e) {\n$spaces    $variableName.${expr.name
+            } = e.newValue;\n$spaces  });\n");
+      }
+    }
+
+    return statement.toString();
+  }
+
+  String emitWebComponentRemoved(List<Expression> expressions, int index) {
+    String spaces = Codegen.spaces(2);
+
+    StringBuffer statement = new StringBuffer();
+
+    String listenerName = "_listener$variableName";
+    String stopWatcherName = "_stopWatcher$variableName";
+
+    for (var expr in expressions) {
+      if (expr.isEvent) {
+        String event = expr.name;
+        statement.add(
+            "$spaces  $variableName.on.$event.remove($listenerName);\n");
+      } else if (expr.isAttribute) {
+        statement.add("$spaces  $stopWatcherName();\n");
+      }
+    }
+
+    return statement.toString();
+  }
+
+  String emitBoundElementFunction(List<Expression> expressions, int index) {
     // Statements to update attributes associated with expressions.
     StringBuffer statementUpdateAttrs = new StringBuffer();
 
@@ -519,7 +800,7 @@ class CGStatement {
     if (_elem.attributes != null) {
       for (var attr in _elem.attributes) {
         if (attr is TemplateAttributeExpression) {
-          int idx = expressions.indexOf(attr.value);
+          int idx = findExpressionInExpressions(expressions, attr.value);
           assert(idx != -1);
 
           if (_elem.tagTokenId == TokenKind.INPUT_ELEMENT) {
@@ -554,7 +835,7 @@ class CGStatement {
     return statement.toString();
   }
 
-  bool get hasTemplateExpression() {
+  bool get hasTemplateExpression {
     if (_elem is HTMLElement && _elem.attributes != null) {
       int count = _elem.attributes.length;
       int idx = 0;
@@ -567,24 +848,31 @@ class CGStatement {
 
     return false;
   }
-
-  /** Find all attributes associated with a template expression. */
-  List<String> attributesExpressions() {
-    List<String> result = new List<String>();
-
-    if (_elem is HTMLElement && _elem.attributes != null) {
-      for (var attr in _elem.attributes) {
-        if (attr is TemplateAttributeExpression) {
-          result.add(attr.value);
-        }
-      }
-    }
-
-    return result;
-  }
-
 }
 
+class Expression {
+  static const int ATTR_EXPR = 1;       // Attribute expression.
+  static const int EVENT_EXPR = 2;      // data-on-NNNN expression.
+  static const int CONTENT_EXPR = 3;    // Text node expression.
+
+  int _type;
+  String name;
+  String expression;
+  bool _emitFlip;
+
+  Expression(this.expression) : _type = CONTENT_EXPR, _emitFlip = false;
+  Expression.attribute(this.name, this.expression, [bool flip = false])
+      : _type = ATTR_EXPR, _emitFlip = flip;
+  Expression.event(this.name, this.expression)
+      : _type = EVENT_EXPR, _emitFlip = false;
+
+  bool get isAttribute => _type == ATTR_EXPR;
+  bool get isEvent => _type == EVENT_EXPR;
+  bool get isFlip => _emitFlip;
+
+  bool sameName(Expression other) =>
+      this.name == other.name && this._type == other._type;
+}
 
 // TODO(terry): Consider merging ElemCG and Analyze.
 /**
@@ -601,6 +889,9 @@ class ElemCG {
   /** Name of class if web component constructor attribute of element tag. */
   String _className;
 
+  /** Name of the web component name attribute of element tag. */
+  String _webComponentName;
+
   /** List of script tags with src. */
   final List<String> _includes;
 
@@ -615,8 +906,11 @@ class ElemCG {
   /** Global List var initializtion for all blocks in a #each. */
   final StringBuffer _globalInits;
 
-  /** List of injection function declarations. */
-  final List<String> _expressions;
+  /**
+   * List of injection function declarations.  Same expression used multiple
+   * times has the same index in _expressions.
+   */
+  final List<Expression> _expressions;
 
   /**  List of each function declarations. */
   final List<String> repeats;
@@ -634,16 +928,17 @@ class ElemCG {
         _globalInits = new StringBuffer();
 
   bool get isWebComponent => _webComponent;
-  String get className() => _className;
-  List<String> get includes() => _includes;
-  String get userCode() => _userCode;
+  String get className => _className;
+  String get webComponentName => _webComponentName;
+  List<String> get includes => _includes;
+  String get userCode => _userCode;
 
   void reportError(String msg) {
     String filename = processor.current.cu.filename;
     world.error("$filename: $msg");
   }
 
-  bool get isLastBlockConstructor() {
+  bool get isLastBlockConstructor {
     CGBlock block = _cgBlocks.last();
     return block.isConstructor;
   }
@@ -658,7 +953,7 @@ class ElemCG {
     }
   }
 
-  List<String> get expressions() => _expressions;
+  List<Expression> get expressions => _expressions;
 
   List<String> activeBlocksLocalNames() {
     List<String> result = [];
@@ -723,7 +1018,7 @@ Nested iterates must have a localName;
     return lastBlock.push(elem, parentName);
   }
 
-  bool get closedStatement() {
+  bool get closedStatement {
     return (lastBlock != null && lastBlock.last != null) ?
         lastBlock.last.closed : false;
   }
@@ -735,31 +1030,31 @@ Nested iterates must have a localName;
     }
   }
 
-  String get lastVariableName() {
+  String get lastVariableName {
     if (lastBlock != null && lastBlock.last != null) {
       return lastBlock.last.variableName;
     }
   }
 
-  String get lastParentName() {
+  String get lastParentName {
     if (lastBlock != null && lastBlock.last != null) {
       return lastBlock.last.parentName;
     }
   }
 
-  CGBlock get lastBlock() => _cgBlocks.length > 0 ? _cgBlocks.last() : null;
+  CGBlock get lastBlock => _cgBlocks.length > 0 ? _cgBlocks.last() : null;
 
   void add(String str) {
     _cgBlocks.last().add(str);
   }
 
-  String get globalDeclarations() {
+  String get globalDeclarations {
     assert(_cgBlocks.length == 1);    // Only constructor body should be left.
     _globalDecls.add(lastBlock.globalDeclarations);
     return _globalDecls.toString();
   }
 
-  String get globalInitializers() {
+  String get globalInitializers {
     assert(_cgBlocks.length == 1);    // Only constructor body should be left.
     _globalInits.add(lastBlock.globalInitializers);
     return _globalInits.toString();
@@ -772,7 +1067,7 @@ Nested iterates must have a localName;
     return (cgb != null) ? cgb.codeBody : lastCodeBody;
   }
 
-  String get lastCodeBody() {
+  String get lastCodeBody {
     closeStatement();
     return _cgBlocks.last().codeBody;
   }
@@ -846,39 +1141,22 @@ Nested iterates must have a localName;
       Template template = elem;
       emitTemplate(template, template.instantiate);
     } else if (elem is HTMLElement) {
-      if (elem is HTMLUnknownElement) {
-        HTMLUnknownElement unknownElem = elem;
-        if (unknownElem.xTag == "element") {
-          _webComponent = true;
-          String className = getAttributeValue(unknownElem, "constructor");
-          if (className != null) {
-            _className = className;
+      if (!elem.isFragment) {
+        add("<${elem.tagName}${elem.attributesToString(false)}>");
+      }
+      String prevParent = lastVariableName;
+      for (var childElem in elem.children) {
+        if (childElem is HTMLElement) {
+          closeStatement();
+          if (childElem.hasVar) {
+            emitConstructHtml(childElem, scopeName, prevParent,
+              childElem.varName);
           } else {
-            reportError("Missing class name of Web Component use constructor attribute");
+            emitConstructHtml(childElem, scopeName, prevParent);
           }
-        }
-      } else if (elem.tagTokenId == TokenKind.SCRIPT_ELEMENT) {
-        // Never emit a script tag.
-        emitScript(elem);
-      } else {
-        if (!elem.isFragment) {
-          add("<${elem.tagName}${elem.attributesToString(false)}>");
-          queueUpFileToProcess(elem);
-        }
-        String prevParent = lastVariableName;
-        for (var childElem in elem.children) {
-          if (childElem is HTMLElement) {
-            closeStatement();
-            if (childElem.hasVar) {
-              emitConstructHtml(childElem, scopeName, prevParent,
-                childElem.varName);
-            } else {
-              emitConstructHtml(childElem, scopeName, prevParent);
-            }
-            closeStatement();
-          } else {
-            emitElement(childElem, scopeName, parentVarOrIdx);
-          }
+          closeStatement();
+        } else {
+          emitElement(childElem, scopeName, parentVarOrIdx);
         }
       }
 
@@ -965,18 +1243,48 @@ Nested iterates must have a localName;
                           var varIndex = 0,
                           bool immediateNestedRepeat = false]) {
     if (elem is HTMLElement) {
-      // Any TemplateAttributeExpression?
-      if (elem.attributes != null) {
-        for (var attr in elem.attributes) {
-          if (attr is TemplateAttributeExpression) {
-            emitAttributeExpression(attr);
+      if (elem is HTMLUnknownElement) {
+        HTMLUnknownElement unknownElem = elem;
+        if (unknownElem.xTag == "element") {
+          _webComponent = true;
+
+          String className = getAttributeValue(unknownElem, "constructor");
+          if (className != null) {
+            _className = className;
+          } else {
+            reportError("Missing class name of Web Component use constructor attribute");
+          }
+
+          String wcName = getAttributeValue(unknownElem, "name");
+          if (wcName != null) {
+            _webComponentName = wcName;
+          } else {
+            reportError("Missing name of Web Component use name attribute");
+          }
+
+          CGStatement stmt = pushStatement(elem, parentName);
+          emitElement(elem, scopeName, stmt.hasGlobalVariable ?
+              stmt.variableName : varIndex);
+        }
+      } else if (elem.tagTokenId == TokenKind.SCRIPT_ELEMENT) {
+        // Never emit a script tag.
+        emitScript(elem);
+      } else if (elem.tagTokenId == TokenKind.LINK_ELEMENT) {
+        queueUpFileToProcess(elem);
+      } else {
+        // Any TemplateAttributeExpression?
+        if (elem.attributes != null) {
+          for (var attr in elem.attributes) {
+            if (attr is TemplateAttributeExpression) {
+              emitAttributeExpression(attr);
+            }
           }
         }
-      }
 
-      CGStatement stmt = pushStatement(elem, parentName);
-      emitElement(elem, scopeName, stmt.hasGlobalVariable ?
-          stmt.variableName : varIndex);
+        CGStatement stmt = pushStatement(elem, parentName);
+        emitElement(elem, scopeName, stmt.hasGlobalVariable ?
+            stmt.variableName : varIndex);
+      }
     } else {
       // Text node.
       emitElement(elem, scopeName, varIndex, immediateNestedRepeat);
@@ -1001,10 +1309,29 @@ Nested iterates must have a localName;
 
   }
 
+  bool matchExpression() {
+
+  }
+
+  const String DATA_ON_ATTRIBUTE = "data-on-";
   void emitAttributeExpression(TemplateAttributeExpression elem) {
-    if (_expressions.indexOf(elem.value) == -1) {
-      _expressions.add(elem.value);
+    Expression newExpr;
+    if (elem.name.startsWith(DATA_ON_ATTRIBUTE)) {
+      String eventName = elem.name.substring(DATA_ON_ATTRIBUTE.length);
+      newExpr = new Expression.event(eventName, elem.value);
+    } else {
+      newExpr = new Expression.attribute(elem.name, elem.value);
     }
+
+    for (var expr in _expressions) {
+      if (expr.sameName(newExpr)) {
+        // If the attribute was already set just ignore same attribute
+        // subsequent times.
+        return;
+      }
+    }
+
+    _expressions.add(newExpr);
   }
 
   void emitExpressions(TemplateExpression elem, String scopeName) {
@@ -1034,7 +1361,7 @@ Nested iterates must have a localName;
     func.add("    return safeHTML('\$\{${newExpr}\}');\n");
     func.add("  }\n");
 
-    _expressions.add(func.toString());
+    _expressions.add(new Expression(func.toString()));
   }
 
   void emitCall(TemplateCall elem, String scopeName) {
@@ -1051,7 +1378,7 @@ Nested iterates must have a localName;
     }
   }
 
-  String get lastBlockVarName() {
+  String get lastBlockVarName {
     var varName;
     if (lastBlock != null && lastBlock.hasStatements) {
       varName = lastBlock.last.variableName;

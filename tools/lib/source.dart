@@ -3,6 +3,7 @@
 // BSD-style license that can be found in the LICENSE file.
 
 #library('source');
+#import('dart:math', prefix: 'Math');
 #import('world.dart');
 #import('utils.dart');
 

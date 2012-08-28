@@ -19,6 +19,8 @@ String toCamelCase(String knownName) {
       dartName.add("${part[0].toUpperCase()}${part.substring(1)}");
     }
   }
+
+  return dartName.toString();
 }
 
 /** Invokes [callback] and returns how long it took to execute in ms. */
@@ -40,3 +42,19 @@ prettyStats(String phase, num elapsed, [String filename = '']) {
 printStats(String phase, num elapsed, [String filename = '']) {
   print('$phase $filename in $elapsed msec.');
 }
+
+const String DATA_ON_ATTRIBUTE = "data-on-";
+String eventAttribute(String attributeName) {
+  if (attributeName.startsWith(DATA_ON_ATTRIBUTE)) {
+    String event = attributeName.substring(DATA_ON_ATTRIBUTE.length);
+    // TODO(terry): May need other event mappings or support doubleclick
+    //              instead of dblclick?
+    if (event == "dblclick") {
+      event = "doubleclick";
+    }
+    return event;
+  }
+
+  return null;
+}
+

@@ -15,7 +15,7 @@
 #import('../lib/world.dart');
 #import('compile.dart');
 #import('compilation_unit.dart');
-#import('codegen.dart');
+#import('codegen_application.dart');
 #import('template.dart');
 #import('utils.dart');
 
